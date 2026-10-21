@@ -1,45 +1,83 @@
 # nginx-echo-headers
 
-A simple tool for debugging HTTP requests. nginx will return all request headers and body to the client.
+A small HTTP debugging endpoint built with OpenResty. It returns request metadata, headers, and the request body as **JSON**, making it useful for testing reverse proxies, ingress controllers, API gateways, and HTTP clients.
 
-For the Docker image, see https://hub.docker.com/r/brndnmtthws/nginx-echo-headers/
+## Features
 
-Try running it like so:
+- Structured JSON response with method, URI, HTTP version, host, client IP, headers, and body.
+- Redacts common credentials in headers, including authorization, cookies, API keys, tokens, secrets, and passwords.
+- Limits incoming request bodies to 1 MiB and response body output to 64 KiB.
+- `/healthz` endpoint for container and Kubernetes health checks.
+- Logs to stdout/stderr and runs as a non-root user.
+- Disables response caching and hides the Nginx version.
 
-```ShellSession
-$ docker run -p 8080:8080 brndnmtthws/nginx-echo-headers
-Unable to find image 'brndnmtthws/nginx-echo-headers:latest' locally
-latest: Pulling from brndnmtthws/nginx-echo-headers
-88286f41530e: Pull complete
-7c2e0e2a8099: Pull complete
-fe86df227e07: Pull complete
-Digest: sha256:177eccf79ee22074a9285341ea61e0a7864023a0a40b115a693256984821328f
-Status: Downloaded newer image for brndnmtthws/nginx-echo-headers:latest
-2019/01/24 13:55:52 [notice] 1#1: using the "epoll" event method
-2019/01/24 13:55:52 [notice] 1#1: openresty/1.11.2.5
-2019/01/24 13:55:52 [notice] 1#1: built by gcc 6.3.0 (Alpine 6.3.0)
-2019/01/24 13:55:52 [notice] 1#1: OS: Linux 4.9.125-linuxkit
-2019/01/24 13:55:52 [notice] 1#1: getrlimit(RLIMIT_NOFILE): 1048576:1048576
-2019/01/24 13:55:52 [notice] 1#1: start worker processes
-2019/01/24 13:55:52 [notice] 1#1: start worker process 7
-2019/01/24 13:56:02 [info] 7#7: *1 client 172.17.0.1 closed keepalive connection
+> **Security:** This service intentionally reflects request data. The request body is returned as sent and may contain passwords, tokens, or personal information. Header redaction is a best-effort safeguard, not a substitute for access control. Do not expose this service publicly or send production secrets to it. Put it behind trusted network controls and use synthetic test data.
+
+## Run with Docker
+
+Build the image:
+
+```sh
+docker build -t nginx-echo-headers:local .
 ```
 
-Then test it (this example uses [httpie](https://httpie.org/)):
+Run it:
 
-```ShellSession
-$ http localhost:8080
-HTTP/1.1 200 OK
-Connection: keep-alive
-Content-Type: text/plain
-Date: Thu, 24 Jan 2019 13:56:02 GMT
-Server: openresty/1.11.2.5
-Transfer-Encoding: chunked
-
-GET / HTTP/1.1
-Host: localhost:8080
-User-Agent: HTTPie/1.0.2
-Accept-Encoding: gzip, deflate
-Accept: */*
-Connection: keep-alive
+```sh
+docker run --rm --name echo-headers -p 127.0.0.1:8080:8080 nginx-echo-headers:local
 ```
+
+The port is bound to loopback by default so the debugging endpoint is not exposed to other network interfaces.
+
+Check health:
+
+```sh
+curl -i http://127.0.0.1:8080/healthz
+```
+
+Send a request:
+
+```sh
+curl -sS http://127.0.0.1:8080/debug?source=local \
+  -H 'Content-Type: application/json' \
+  -H 'Authorization: Bearer example-token' \
+  -H 'X-Api-Key: example-key' \
+  -d '{"message":"hello"}'
+```
+
+Example response (header order may vary):
+
+```json
+{
+  "method": "POST",
+  "request_uri": "/debug?source=local",
+  "http_version": 1.1,
+  "host": "127.0.0.1",
+  "remote_addr": "127.0.0.1",
+  "headers": {
+    "authorization": "[REDACTED]",
+    "content-type": "application/json",
+    "x-api-key": "[REDACTED]"
+  },
+  "headers_truncated": false,
+  "body": "{\"message\":\"hello\"}",
+  "body_truncated": false
+}
+```
+
+Only selected fields are shown in the example; the response includes the other request headers too.
+
+## Kubernetes notes
+
+- Use `/healthz` for readiness and liveness probes on port `8080`.
+- Keep the Service internal unless there is a specific, access-controlled debugging use case.
+- Set ingress or gateway request-size limits as well; the in-container 1 MiB limit is not a replacement for edge limits.
+- Treat echoed body content and all non-redacted headers as sensitive.
+
+## Development and validation
+
+The GitHub Actions workflow builds the container and checks health, JSON output, request body echoing, and credential-header redaction on pull requests.
+
+## License
+
+See the repository's license metadata, if provided.
