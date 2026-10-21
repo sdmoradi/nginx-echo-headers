@@ -2,10 +2,14 @@ FROM openresty/openresty:alpine
 
 COPY nginx.conf /usr/local/openresty/nginx/conf/nginx.conf
 
-# Run as a non-root UID. The service listens on an unprivileged port and writes
-# its PID and request-body temporary files under /tmp.
-RUN mkdir -p /tmp/client_body \
-    && chown -R 101:101 /tmp/client_body \
+# OpenResty runs as an unprivileged UID; all writable paths are under /tmp.
+RUN mkdir -p \
+      /tmp/client_body \
+      /tmp/proxy_temp \
+      /tmp/fastcgi_temp \
+      /tmp/uwsgi_temp \
+      /tmp/scgi_temp \
+    && chown -R 101:101 /tmp/client_body /tmp/proxy_temp /tmp/fastcgi_temp /tmp/uwsgi_temp /tmp/scgi_temp \
     && chmod 755 /usr/local/openresty/nginx/conf/nginx.conf
 
 USER 101:101
